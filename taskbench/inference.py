@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import random
 
 import aiohttp
 import click
@@ -34,11 +35,23 @@ class ContentFormatError(Exception):
 @click.option("--multiworker", type=int, default=1)
 @click.option("--llm", type=str, default="gpt-4")
 @click.option("--use_demos", type=int, default=2)
-@click.option("--reformat", type=bool, default=True)
+@click.option("--reformat", type=bool, default=False)
 @click.option("--reformat_by", type=str, default="self")
 @click.option("--tag", type=bool, default=False)
 @click.option("--dependency_type", type=str, default="resource")
-@click.option("--log_first_detail", type=bool, default=True)
+@click.option("--log_first_detail", type=bool, default=False)
+@click.option(
+    "--fraction",
+    type=float,
+    default=1.0,
+    help="Fraction of dataset to use (0.0 to 1.0]",
+)
+@click.option(
+    "--seed",
+    type=int,
+    default=42,
+    help="Random seed for reproducibility",
+)
 def main(
     data_dir,
     temperature,
@@ -54,6 +67,8 @@ def main(
     tag,
     dependency_type,
     log_first_detail,
+    fraction,
+    seed,
 ):
     assert dependency_type in ["resource", "temporal"], "Dependency type not supported"
     if dependency_type == "resource":
@@ -94,6 +109,15 @@ def main(
         if input["id"] not in has_inferenced:
             inputs.append(input)
     rf_ur.close()
+
+    # Apply fraction to subsample the dataset
+    if fraction < 1.0:
+        random.seed(seed)
+        sample_size = int(len(inputs) * fraction)
+        inputs = random.sample(inputs, sample_size)
+        logger.info(
+            f"Subsampled {len(inputs)}/{len(inputs)} inputs (fraction: {fraction})"
+        )
 
     wf = open(wf_name, "a")
 
@@ -343,11 +367,22 @@ async def inference(
 
 
 async def get_response(
-    url, header, payload, id, reformat, reformat_by, dependency_type, log_detail=False
+    url,
+    header,
+    payload,
+    id,
+    reformat,
+    reformat_by,
+    dependency_type,
+    log_detail=False,
 ):
     async with aiohttp.ClientSession() as session:
+        # Make the first API call to get the response
         async with session.post(
-            url, headers=header, data=payload, timeout=300
+            url,
+            headers=header,
+            data=payload,
+            timeout=300,
         ) as response:
             resp = await response.json()
 
@@ -405,8 +440,12 @@ async def get_response(
             payload = json.dumps(payload)
 
             async with aiohttp.ClientSession() as session:
+                # Make a second API call to reformat JSON in the response
                 async with session.post(
-                    url, headers=header, data=payload, timeout=120
+                    url,
+                    headers=header,
+                    data=payload,
+                    timeout=120,
                 ) as response:
                     resp = await response.json()
 

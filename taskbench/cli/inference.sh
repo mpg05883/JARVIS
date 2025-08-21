@@ -18,6 +18,9 @@ MODELS=("gpt-4")
 DATA_DIRS=("data_multimedia" "data_huggingface" "data_dailylifeapis")
 NUM_RUNS=$((${#MODELS[@]} * ${#DATA_DIRS[@]}))
 
+FRACTION=0.01
+SEED=42
+
 RUN_INDEX=0
 for MODEL in "${MODELS[@]}"; do
     for DATA_DIR in "${DATA_DIRS[@]}"; do
@@ -29,7 +32,9 @@ for MODEL in "${MODELS[@]}"; do
             --data_dir $DATA_DIR \
             --api_addr api.openai.com \
             --api_port 443 \
-            --api_key $OPENAI_API_KEY; then
+            --api_key $OPENAI_API_KEY \
+            --fraction $FRACTION \
+            --seed $SEED; then
             log_info "Successfully finished inference for model: $MODEL on data directory: $DATA_DIR"
         else
             log_error "Inference failed for model: $MODEL on data directory: $DATA_DIR"
