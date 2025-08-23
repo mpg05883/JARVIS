@@ -1,5 +1,4 @@
 #!/bin/bash
-mkdir -p logs
 source ./cli/utils/common.sh
 activate_task_bench_env
 load_env_variables

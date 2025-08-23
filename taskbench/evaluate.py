@@ -1,3 +1,4 @@
+import csv
 import itertools
 import json
 import logging
@@ -179,6 +180,302 @@ def get_content_type(content):
     return "text"
 
 
+def compute_per_sample_metrics(
+    label, prediction, tool_map, tool_output_type_map, dependency_type
+):
+    """
+    Compute metrics for a single sample.
+    Returns a dictionary with all computed metrics for this sample.
+    """
+    sample_metrics = {}
+
+    try:
+        # Extract nodes
+        label_nodes = label["task_nodes"]
+        prediction_nodes = prediction["result"]["task_nodes"]
+
+        label_node_names = [node["task"] for node in label_nodes]
+        prediction_node_names = [node["task"] for node in prediction_nodes]
+
+        # Node-level metrics
+        if dependency_type == "resource":
+            prediction_node_names = [
+                name.replace("_", " ") for name in prediction_node_names
+            ]
+            label_node_names = [name.replace("_", " ") for name in label_node_names]
+
+        # Node F1 (binary classification for each tool type)
+        types = list(range(1, len(tool_map) + 1))
+        types_name = list(tool_map.keys())
+
+        # Create binary vectors for each tool type
+        label_binary = []
+        prediction_binary = []
+
+        for tool_type in types_name:
+            label_binary.append(1 if tool_type in label_node_names else 0)
+            prediction_binary.append(1 if tool_type in prediction_node_names else 0)
+
+        # Compute F1 for this sample
+        if sum(label_binary) > 0 or sum(prediction_binary) > 0:
+            tp = sum(
+                1 for l, p in zip(label_binary, prediction_binary) if l == 1 and p == 1
+            )
+            fp = sum(
+                1 for l, p in zip(label_binary, prediction_binary) if l == 0 and p == 1
+            )
+            fn = sum(
+                1 for l, p in zip(label_binary, prediction_binary) if l == 1 and p == 0
+            )
+
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+            f1 = (
+                2 * precision * recall / (precision + recall)
+                if (precision + recall) > 0
+                else 0
+            )
+
+            sample_metrics["node_precision"] = precision
+            sample_metrics["node_recall"] = recall
+            sample_metrics["node_f1"] = f1
+        else:
+            sample_metrics["node_precision"] = 0
+            sample_metrics["node_recall"] = 0
+            sample_metrics["node_f1"] = 0
+
+        # Edit Distance
+        label_encoded = [tool_map.get(name, 0) for name in label_node_names]
+        prediction_encoded = [tool_map.get(name, 0) for name in prediction_node_names]
+
+        # Compute Levenshtein distance
+        distance = Levenshtein.distance(str(label_encoded), str(prediction_encoded))
+        max_len = max(len(label_encoded), len(prediction_encoded))
+        edit_distance = 1 - (distance / max_len) if max_len > 0 else 1
+        sample_metrics["edit_distance"] = edit_distance
+
+        # Link metrics
+        if dependency_type == "resource":
+            # Process links for resource dependency
+            label_links = []
+            prediction_links = []
+
+            # Process label links
+            for idx, node in enumerate(label_nodes):
+                for argument in node.get("arguments", []):
+                    if isinstance(argument, dict):
+                        arg_value = (
+                            list(argument.values())[0] if argument.values() else ""
+                        )
+                    elif isinstance(argument, list):
+                        arg_value = " ".join(argument)
+                    else:
+                        arg_value = str(argument)
+
+                    if "<node-" in str(arg_value):
+                        try:
+                            index_start = str(arg_value).index("<node-") + 6
+                            index_end = str(arg_value).index(">")
+                            if int(str(arg_value)[index_start:index_end]) == idx:
+                                continue
+                            source_tool = label_node_names[
+                                int(str(arg_value)[index_start:index_end])
+                            ]
+                            label_links.append(
+                                {"source": source_tool, "target": node["task"]}
+                            )
+                        except:
+                            pass
+
+            # Process prediction links
+            for idx, node in enumerate(prediction_nodes):
+                for argument in node.get("arguments", []):
+                    if isinstance(argument, dict):
+                        arg_value = (
+                            list(argument.values())[0] if argument.values() else ""
+                        )
+                    elif isinstance(argument, list):
+                        arg_value = " ".join(argument)
+                    else:
+                        arg_value = str(argument)
+
+                    if "<node-" in str(arg_value):
+                        try:
+                            index_start = str(arg_value).index("<node-") + 6
+                            index_end = str(arg_value).index(">")
+                            if int(str(arg_value)[index_start:index_end]) == idx:
+                                continue
+                            source_tool = prediction_node_names[
+                                int(str(arg_value)[index_start:index_end])
+                            ]
+                            prediction_links.append(
+                                {"source": source_tool, "target": node["task"]}
+                            )
+                        except:
+                            pass
+        else:
+            # Use existing links
+            label_links = (
+                label.get("task_links", [])
+                if "task_links" in label
+                else label.get("tool_links", [])
+            )
+            prediction_links = prediction["result"].get("task_links", [])
+
+        # Compute link F1
+        label_link_tuples = [(link["source"], link["target"]) for link in label_links]
+        prediction_link_tuples = [
+            (link["source"], link["target"]) for link in prediction_links
+        ]
+
+        if len(label_link_tuples) > 0 or len(prediction_link_tuples) > 0:
+            tp = len(set(label_link_tuples) & set(prediction_link_tuples))
+            fp = len(set(prediction_link_tuples) - set(label_link_tuples))
+            fn = len(set(label_link_tuples) - set(prediction_link_tuples))
+
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+            f1 = (
+                2 * precision * recall / (precision + recall)
+                if (precision + recall) > 0
+                else 0
+            )
+
+            sample_metrics["link_precision"] = precision
+            sample_metrics["link_recall"] = recall
+            sample_metrics["link_f1"] = f1
+        else:
+            sample_metrics["link_precision"] = 0
+            sample_metrics["link_recall"] = 0
+            sample_metrics["link_f1"] = 0
+
+        # Argument metrics
+        label_arg_names = []
+        prediction_arg_names = []
+
+        for task, arguments in zip(
+            label_node_names, [node.get("arguments", []) for node in label_nodes]
+        ):
+            for argument in arguments:
+                if isinstance(argument, dict):
+                    arg_name = argument.get("name", "unknown")
+                else:
+                    arg_name = "unknown"
+                label_arg_names.append(f"{task}-{arg_name}")
+
+        for task, arguments in zip(
+            prediction_node_names,
+            [node.get("arguments", []) for node in prediction_nodes],
+        ):
+            for argument in arguments:
+                if isinstance(argument, dict):
+                    arg_name = argument.get("name", "unknown")
+                else:
+                    arg_name = "unknown"
+                prediction_arg_names.append(f"{task}-{arg_name}")
+
+        # Compute argument F1
+        if len(label_arg_names) > 0 or len(prediction_arg_names) > 0:
+            tp = len(set(label_arg_names) & set(prediction_arg_names))
+            fp = len(set(prediction_arg_names) - set(label_arg_names))
+            fn = len(set(label_arg_names) - set(prediction_arg_names))
+
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+            f1 = (
+                2 * precision * recall / (precision + recall)
+                if (precision + recall) > 0
+                else 0
+            )
+
+            sample_metrics["argument_precision"] = precision
+            sample_metrics["argument_recall"] = recall
+            sample_metrics["argument_f1"] = f1
+        else:
+            sample_metrics["argument_precision"] = 0
+            sample_metrics["argument_recall"] = 0
+            sample_metrics["argument_f1"] = 0
+
+    except Exception as e:
+        logger.warning(f"Error computing per-sample metrics: {e}")
+        # Set default values for failed computations
+        sample_metrics = {
+            "node_precision": 0,
+            "node_recall": 0,
+            "node_f1": 0,
+            "edit_distance": 0,
+            "link_precision": 0,
+            "link_recall": 0,
+            "link_f1": 0,
+            "argument_precision": 0,
+            "argument_recall": 0,
+            "argument_f1": 0,
+        }
+
+    return sample_metrics
+
+
+def save_per_sample_metrics_to_csv(all_metric_dict, csv_file, data_dir):
+    """
+    Save per-sample metrics to a CSV file.
+    """
+    # Load user requests to get instructions
+    user_requests = {}
+    try:
+        with open(os.path.join(data_dir, "user_requests.json"), "r") as f:
+            for line in f:
+                data = json.loads(line.strip())
+                user_requests[data["id"]] = data.get("user_request", "")
+    except Exception as e:
+        logger.warning(f"Could not load user requests: {e}")
+
+    # Define CSV columns
+    columns = [
+        "id",
+        "instruction",
+        "node_precision",
+        "node_recall",
+        "node_f1",
+        "edit_distance",
+        "link_precision",
+        "link_recall",
+        "link_f1",
+        "argument_precision",
+        "argument_recall",
+        "argument_f1",
+    ]
+
+    with open(csv_file, "w", newline="", encoding="utf-8") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=columns)
+        writer.writeheader()
+
+        # Write per-sample metrics
+        for sample_id, metrics in all_metric_dict.items():
+            if isinstance(metrics, dict) and "per_sample_metrics" in metrics:
+                for sample_metrics in metrics["per_sample_metrics"]:
+                    row = {
+                        "id": sample_metrics.get("id", ""),
+                        "instruction": user_requests.get(
+                            sample_metrics.get("id", ""), ""
+                        ),
+                        "node_precision": sample_metrics.get("node_precision", 0),
+                        "node_recall": sample_metrics.get("node_recall", 0),
+                        "node_f1": sample_metrics.get("node_f1", 0),
+                        "edit_distance": sample_metrics.get("edit_distance", 0),
+                        "link_precision": sample_metrics.get("link_precision", 0),
+                        "link_recall": sample_metrics.get("link_recall", 0),
+                        "link_f1": sample_metrics.get("link_f1", 0),
+                        "argument_precision": sample_metrics.get(
+                            "argument_precision", 0
+                        ),
+                        "argument_recall": sample_metrics.get("argument_recall", 0),
+                        "argument_f1": sample_metrics.get("argument_f1", 0),
+                    }
+                    writer.writerow(row)
+
+    logger.info(f"Per-sample metrics saved to: {csv_file}")
+
+
 @click.command()
 @click.option(
     "--data_dir", default="data_huggingface", help="The directory of the data."
@@ -315,8 +612,14 @@ def main(
             alignment=alignment,
         )
 
+    # Save JSON results
     metric_json = open(metric_file, "w")
     metric_json.write(json.dumps(all_metric_dict, indent=2))
+    metric_json.close()
+
+    # Save CSV results
+    csv_file = os.path.join(save_path, f"{llm_safe}_per_sample_metrics.csv")
+    save_per_sample_metrics_to_csv(all_metric_dict, csv_file, data_dir)
 
     # Print final metrics summary
     print("\n" + "=" * 80)
@@ -368,7 +671,9 @@ def main(
             print(f"BERTScore {metric_name}: {metrics[bertscore_metric]:.4f}")
 
     print("\n" + "=" * 80)
-    print(f"✅ Evaluation completed! Results saved to: {metric_file}")
+    print("✅ Evaluation completed!")
+    print(f"📊 JSON results saved to: {metric_file}")
+    print(f"📋 CSV results saved to: {csv_file}")
     print("=" * 80)
 
 
@@ -502,6 +807,9 @@ def evaluate(
     predcition_task_arg_names = []
     label_task_arg_name_values = []
     predcition_task_arg_name_values = []
+
+    # Store per-sample metrics
+    per_sample_metrics = []
 
     for id in tqdm(ids, desc=f"Computing metrics ({split}_{n_tool})", unit="sample"):
         try:
@@ -712,6 +1020,13 @@ def evaluate(
             label_links.append(label_link)
             predcition_links.append(predcition_link)
 
+            # Compute per-sample metrics
+            sample_metrics = compute_per_sample_metrics(
+                label, predcition, tool_map, tool_output_type_map, dependency_type
+            )
+            sample_metrics["id"] = id
+            per_sample_metrics.append(sample_metrics)
+
         except Exception as e:
             logger.info(f"Parsing Error: {e}, Ignore #id {id}")
             logger.info(traceback.format_exc())
@@ -726,6 +1041,7 @@ def evaluate(
     metric_dict["node_supports"] = len(label_names)
     metric_dict["link_supports"] = len(label_links)
     metric_dict["argument_supports"] = len(label_graphs)
+    metric_dict["per_sample_metrics"] = per_sample_metrics
 
     if len(label_graphs) == 0 or len(label_names) == 0 or len(label_links) == 0:
         logger.info("No supports, skip")

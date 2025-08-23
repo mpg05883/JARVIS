@@ -1,0 +1,74 @@
+{
+  "builder_name": "parquet",
+  "citation": "",
+  "config_name": "multimedia",
+  "dataset_name": "taskbench",
+  "dataset_size": 7000372,
+  "description": "",
+  "download_checksums": {
+    "hf://datasets/microsoft/Taskbench@d12764a8fa650f49f50507a02c3e707c71c67621/data_multimedia/improved.parquet": {
+      "num_bytes": 2355380,
+      "checksum": null
+    }
+  },
+  "download_size": 2355380,
+  "features": {
+    "id": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "seed": {
+      "dtype": "int64",
+      "_type": "Value"
+    },
+    "n_tools": {
+      "dtype": "int64",
+      "_type": "Value"
+    },
+    "type": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "sampled_nodes": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "sampled_links": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "instruction": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "tool_steps": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "tool_nodes": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "tool_links": {
+      "dtype": "string",
+      "_type": "Value"
+    }
+  },
+  "homepage": "",
+  "license": "",
+  "size_in_bytes": 9355752,
+  "splits": {
+    "test": {
+      "name": "test",
+      "num_bytes": 7000372,
+      "num_examples": 5555,
+      "dataset_name": "taskbench"
+    }
+  },
+  "version": {
+    "version_str": "0.0.0",
+    "major": 0,
+    "minor": 0,
+    "patch": 0
+  }
+}
