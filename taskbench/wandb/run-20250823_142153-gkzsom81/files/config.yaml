@@ -1,0 +1,53 @@
+_wandb:
+    value:
+        cli_version: 0.21.1
+        e:
+            sm4bt7ax884o55rlk6chdkcwpb2tfhyl:
+                args:
+                    - artifact
+                    - put
+                    - --name
+                    - taskbench-predictions
+                    - --type
+                    - predictions
+                    - data_multimedia/predictions_use_demos_2_reformat_by_self/meta-llama_Llama-3.3-70B-Instruct-Turbo.json
+                cpu_count: 10
+                cpu_count_logical: 16
+                disk:
+                    /:
+                        total: "486905212928"
+                        used: "447812362240"
+                email: mpgee@usc.edu
+                executable: C:\Users\Mike\AppData\Local\Programs\Python\Python312\python.exe
+                git:
+                    commit: 04cf21c469c9dc5844f2e7cbc2fd50b0e26969d1
+                    remote: https://github.com/mpg05883/JARVIS.git
+                host: Mike_XPS_15
+                memory:
+                    total: "16834945024"
+                os: Windows-11-10.0.26100-SP0
+                program: -m __main__
+                python: CPython 3.12.6
+                root: C:\Users\Mike\vscode\JARVIS\taskbench
+                startedAt: "2025-08-23T21:21:53.893995Z"
+                writerId: sm4bt7ax884o55rlk6chdkcwpb2tfhyl
+        m: []
+        python_version: 3.12.6
+        t:
+            "1":
+                - 15
+                - 105
+            "2":
+                - 15
+                - 105
+            "3":
+                - 2
+                - 16
+            "4": 3.12.6
+            "5": 0.21.1
+            "8":
+                - 3
+            "12": 0.21.1
+            "13": windows-amd64
+path:
+    value: data_multimedia/predictions_use_demos_2_reformat_by_self/meta-llama_Llama-3.3-70B-Instruct-Turbo.json
