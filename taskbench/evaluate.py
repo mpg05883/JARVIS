@@ -1,15 +1,18 @@
-import traceback
-import numpy as np
-from scipy.optimize import linear_sum_assignment
+import itertools
 import json
-import click
-from datasets import load_metric
-import Levenshtein
-from sklearn.metrics import precision_recall_fscore_support as prfs
-import warnings
 import logging
 import os
-import itertools
+import traceback
+import warnings
+
+import click
+import Levenshtein
+import numpy as np
+from datasets import load_metric
+from scipy.optimize import linear_sum_assignment
+from sklearn.metrics import precision_recall_fscore_support as prfs
+
+# TODO: Change this so it uses Together AI API
 
 warnings.filterwarnings("ignore")
 
@@ -336,7 +339,7 @@ def evaluate(data_dir, prediction_dir, llm, split, n_tool, metric, tool_desc, to
                             predcition_task_steps.append("\n".join([step["step_name"] for step in predcition_task_step]))
                         else:
                             predcition_task_steps.append("\n".join([step["description"] for step in predcition_task_step]))
-                except Exception as e:
+                except Exception:
                     predcition_task_steps.append(str(predcition_task_step))
 
                 label_task_steps.append("\n".join(label_task_step))
@@ -376,7 +379,7 @@ def evaluate(data_dir, prediction_dir, llm, split, n_tool, metric, tool_desc, to
                                 new_argument = {"name": tool_output_type_map.get(argument_tool_name, "other"), "value": argument_tool_name}
                             else:
                                 new_argument = {"name": get_content_type(argument), "value": argument}
-                        except Exception as e:
+                        except Exception:
                             pass
                         new_arguments.append(new_argument)
                     node["arguments"] = new_arguments
@@ -401,7 +404,7 @@ def evaluate(data_dir, prediction_dir, llm, split, n_tool, metric, tool_desc, to
                             else:
                                 new_argument = {"name": get_content_type(argument), "value": argument}
 
-                        except Exception as e:
+                        except Exception:
                             pass
                         new_arguments.append(new_argument)
                     node["arguments"] = new_arguments

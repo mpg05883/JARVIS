@@ -1,0 +1,5 @@
+# Ignore .json files in the immediate directory of data_multimedia
+data_multimedia/*.json
+
+# But don't ignore .json files in directories with "predictions" in their name
+!data_multimedia/*predictions*/*.json

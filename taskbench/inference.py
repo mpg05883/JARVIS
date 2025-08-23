@@ -7,10 +7,14 @@ import random
 import aiohttp
 import click
 import emoji
+from dotenv import load_dotenv
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 logger.handlers = []
+
+load_dotenv()
 
 
 class RateLimitError(Exception):
@@ -29,17 +33,32 @@ class ContentFormatError(Exception):
 )
 @click.option("--temperature", type=float, default=0.2)
 @click.option("--top_p", type=float, default=0.1)
-@click.option("--api_addr", type=str, default="localhost")
-@click.option("--api_port", type=int, default=4000)
-@click.option("--api_key", type=str, default="your api key")
+@click.option(
+    "--api_addr",
+    type=str,
+    default="api.together.xyz",
+    help="API address (use 'api.together.xyz' for Together AI)",
+)
+@click.option("--api_port", type=int, default=443, help="API port (443 for HTTPS)")
+@click.option(
+    "--api_key",
+    type=str,
+    default=os.getenv("TOGETHER_API_KEY"),
+    help="Your Together AI API key",
+)
 @click.option("--multiworker", type=int, default=1)
-@click.option("--llm", type=str, default="gpt-4")
+@click.option(
+    "--llm",
+    type=str,
+    default="meta-llama/Llama-4-Scout-17B-16E-Instruct",
+    help="Model name",
+)
 @click.option("--use_demos", type=int, default=2)
-@click.option("--reformat", type=bool, default=False)
+@click.option("--reformat", type=bool, default=True)
 @click.option("--reformat_by", type=str, default="self")
-@click.option("--tag", type=bool, default=False)
+@click.option("--tag", type=bool, default=True)
 @click.option("--dependency_type", type=str, default="resource")
-@click.option("--log_first_detail", type=bool, default=False)
+@click.option("--log_first_detail", type=bool, default=True)
 @click.option(
     "--fraction",
     type=float,
@@ -51,6 +70,12 @@ class ContentFormatError(Exception):
     type=int,
     default=42,
     help="Random seed for reproducibility",
+)
+@click.option(
+    "--wait_time",
+    type=float,
+    default=0.0,
+    help="Wait time in seconds between API calls (default: 0.0)",
 )
 def main(
     data_dir,
@@ -69,6 +94,7 @@ def main(
     log_first_detail,
     fraction,
     seed,
+    wait_time,
 ):
     assert dependency_type in ["resource", "temporal"], "Dependency type not supported"
     if dependency_type == "resource":
@@ -82,6 +108,7 @@ def main(
         "api.openai.com",
         "api.anthropic.com",
         "api-inference.huggingface.co",
+        "api.together.xyz",
     ]:
         url = f"https://{api_addr}/v1/chat/completions"
     else:
@@ -89,7 +116,9 @@ def main(
     header = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
     prediction_dir = f"{data_dir}/predictions{f'_use_demos_{use_demos}' if use_demos and tag else ''}{f'_reformat_by_{ reformat_by}' if reformat and tag else ''}"
-    wf_name = f"{prediction_dir}/{llm}.json"
+    # Sanitize model name for file path (replace forward slashes with underscores)
+    safe_llm_name = llm.replace("/", "_")
+    wf_name = f"{prediction_dir}/{safe_llm_name}.json"
 
     if not os.path.exists(prediction_dir):
         os.makedirs(prediction_dir, exist_ok=True)
@@ -113,7 +142,7 @@ def main(
     # Apply fraction to subsample the dataset
     if fraction < 1.0:
         random.seed(seed)
-        sample_size = int(len(inputs) * fraction)
+        sample_size = max(int(len(inputs) * fraction), 1)
         inputs = random.sample(inputs, sample_size)
         logger.info(
             f"Subsampled {len(inputs)}/{len(inputs)} inputs (fraction: {fraction})"
@@ -142,7 +171,7 @@ def main(
     console_handler.setLevel(logging.INFO)
     logger.addHandler(console_handler)
 
-    file_handler = logging.FileHandler(f"{prediction_dir}/{llm}.log")
+    file_handler = logging.FileHandler(f"{prediction_dir}/{safe_llm_name}.log")
     file_handler.setFormatter(formatter)
     file_handler.setLevel(logging.INFO)
     logger.addHandler(file_handler)
@@ -218,6 +247,8 @@ def main(
         reformat,
         reformat_by,
         dependency_type,
+        wait_time,
+        pbar=None,
         log_detail=False,
     ):
         async with sem:
@@ -234,6 +265,8 @@ def main(
                 reformat,
                 reformat_by,
                 dependency_type,
+                wait_time,
+                pbar,
                 log_detail,
             )
 
@@ -246,6 +279,12 @@ def main(
 
     loop = asyncio.get_event_loop()
     results = []  # Initialize results list
+
+    # Create progress bar
+    total_inputs = len(inputs)
+    pbar = tqdm(
+        total=total_inputs, desc=f"Generating predictions ({llm})", unit="sample"
+    )
 
     if log_first_detail:
         tasks = [
@@ -262,7 +301,9 @@ def main(
                 reformat,
                 reformat_by,
                 dependency_type,
+                wait_time,
                 log_detail=True,
+                pbar=pbar,
             )
         ]
         results = loop.run_until_complete(
@@ -286,10 +327,13 @@ def main(
                 reformat,
                 reformat_by,
                 dependency_type,
+                wait_time,
+                pbar=pbar,
             )
         )
 
     results += loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
+    pbar.close()
     failed = []
     done = []
     for result in results:
@@ -315,6 +359,8 @@ async def inference(
     reformat,
     reformat_by,
     dependency_type,
+    wait_time,
+    pbar=None,
     log_detail=False,
 ):
     user_request = input["user_request"]
@@ -359,11 +405,23 @@ async def inference(
         )
     except Exception as e:
         logger.info(f"Failed #id {input['id']}: {type(e)} {e}")
+        if pbar:
+            pbar.update(1)
         raise e
+
     logger.info(f"Success #id {input['id']}")
     input["result"] = result
     wf.write(json.dumps(input) + "\n")
     wf.flush()
+
+    # Update progress bar
+    if pbar:
+        pbar.update(1)
+
+    # Wait between API calls to prevent rate limiting
+    if wait_time > 0:
+        logger.info(f"Waiting {wait_time} seconds before next request...")
+        await asyncio.sleep(wait_time)
 
 
 async def get_response(
