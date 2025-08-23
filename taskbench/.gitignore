@@ -3,3 +3,6 @@ data_multimedia/*.json
 
 # But don't ignore .json files in directories with "predictions" in their name
 !data_multimedia/*predictions*/*.json
+
+# Ignore Weights & Biases directories and files (anywhere in the repo)
+**/wandb/
