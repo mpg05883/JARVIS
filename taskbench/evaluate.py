@@ -618,7 +618,7 @@ def main(
     metric_json.close()
 
     # Save CSV results
-    csv_file = os.path.join(save_path, f"{llm_safe}_per_sample_metrics.csv")
+    csv_file = os.path.join(save_path, f"{llm_safe}.csv")
     save_per_sample_metrics_to_csv(all_metric_dict, csv_file, data_dir)
 
     # Print final metrics summary
